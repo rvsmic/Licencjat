@@ -1,0 +1,1 @@
+g++ -std=c++17 -o base ../BASE/main.cpp -lgdal -ljpeg
