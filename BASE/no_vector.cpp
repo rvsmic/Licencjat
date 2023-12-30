@@ -4,21 +4,14 @@
 #include <jpeglib.h>
 #include <cmath>
 #include <chrono>
-#include <cuda.h>
-
-#define BLOCK_DIM 16
 
 typedef unsigned int uint;
 typedef unsigned char uchar;
 
-// Calculate shade for a single pixel on GPU
-__global__ void calculateShadeKernel(double* pixelArray, double* shadeArr, int height, int width, size_t pixelPitch, size_t shadePitch, int azimuth, int altitude) {
-    pixelPitch /= sizeof(double);
-    shadePitch /= sizeof(double);
-
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-
+// Calculate shade on a vector of vectors of pixels
+double* calculateShade(double* &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
+    // Vector for shaded map
+    double* shadeArr = new double[(height - 2) * (width - 2)];
     int zenithDegree = 90 - altitude;
     double zenithRadian = double(zenithDegree) * (M_PI / 180);
     int azimuthMath = (360 - azimuth + 90) % 360;
@@ -28,81 +21,58 @@ __global__ void calculateShadeKernel(double* pixelArray, double* shadeArr, int h
     int cellSize = 5;
     // Z factor - height exaggeration -> bigger = more intense shading
     int zFactor = 1;
-
-    if (i>0 && i<height-1 && j>0 && j<width-1) {
-        // Change in height in x-axis
-        double changeX = (
-            (
-                pixelArray[(i-1)*pixelPitch + j+1] + (2 * pixelArray[i*pixelPitch + j+1]) + pixelArray[(i+1)*pixelPitch + j+1]
-            ) - (
-                pixelArray[(i-1)*pixelPitch + j-1] + (2 * pixelArray[i*pixelPitch + j-1]) + pixelArray[(i+1)*pixelPitch + j-1]
-            )
-        ) / (8 * cellSize);
-        // Change in height in y-axis
-        double changeY = (
-            (
-                pixelArray[(i+1)*pixelPitch + j-1] + (2 * pixelArray[(i+1)*pixelPitch + j]) + pixelArray[(i+1)*pixelPitch + j+1]
-            ) - (
-                pixelArray[(i-1)*pixelPitch + j-1] + (2 * pixelArray[(i-1)*pixelPitch + j]) + pixelArray[(i-1)*pixelPitch + j+1]
-            )
-        ) / (8 * cellSize);
-        // Final slope radian
-        double slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
-        // Slope aspect radian
-        double aspectRadian;
-        if (changeX != 0) {
-            aspectRadian = atan2(changeY, -changeX);
-            if (aspectRadian < 0) {
-                aspectRadian = 2 * M_PI + aspectRadian;
-            }
-        } else {
-            if (changeY > 0) {
-                aspectRadian = M_PI / 2;
-            } else if (changeY < 0) {
-                aspectRadian = 3 * M_PI / 2;
+    // Iterate over all the pixels
+    for(int i=1; i < height - 1; ++i) {
+        // Print current row number
+        for(int j=1; j < width - 1; ++j) {
+            // Change in height in x-axis
+            double changeX = (
+                (
+                    pixelArray[((i-1)*width) + j + 1] + (2 * pixelArray[(i*width) + j + 1]) + pixelArray[((i+1)*width) + j + 1]
+                ) - (
+                    pixelArray[((i-1)*width) + j - 1] + (2 * pixelArray[(i*width) + j - 1]) + pixelArray[((i+1)*width) + j - 1]
+                )
+            ) / (8 * cellSize);
+            // Change in height in y-axis
+            double changeY = (
+                (
+                    pixelArray[((i+1)*width) + j - 1] + (2 * pixelArray[((i+1)*width) + j]) + pixelArray[((i+1)*width) + j + 1]
+                ) - (
+                    pixelArray[((i-1)*width) + j - 1] + (2 * pixelArray[((i-1)*width) + j]) + pixelArray[((i-1)*width) + j + 1]
+                )
+            ) / (8 * cellSize);
+            // Final slope radian
+            double slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
+            // Slope aspect radian
+            double aspectRadian;
+            if (changeX != 0) {
+                aspectRadian = atan2(changeY, -changeX);
+                if (aspectRadian < 0) {
+                    aspectRadian = 2 * M_PI + aspectRadian;
+                }
             } else {
-                aspectRadian = 0;
+                if (changeY > 0) {
+                    aspectRadian = M_PI / 2;
+                } else if (changeY < 0) {
+                    aspectRadian = 3 * M_PI / 2;
+                } else {
+                    aspectRadian = 0;
+                }
             }
+            // Shade value for pixel
+            double hillShade = 255.0 * (
+                (
+                    cos(zenithRadian) * cos(slopeRadian)
+                ) + (
+                    sin(zenithRadian) * sin(slopeRadian) * cos(azimuthRadian - aspectRadian)
+                )
+            );
+            if (hillShade < 0) {
+                hillShade = 0;
+            }
+            shadeArr[((i-1)*(width-2)) + j - 1] = hillShade;
         }
-        // Shade value for pixel
-        double hillShade = 255.0 * (
-            (
-                cos(zenithRadian) * cos(slopeRadian)
-            ) + (
-                sin(zenithRadian) * sin(slopeRadian) * cos(azimuthRadian - aspectRadian)
-            )
-        );
-        if (hillShade < 0) {
-            hillShade = 0;
-        }
-        shadeArr[(i-1)*shadePitch + (j-1)] = hillShade;
     }
-}
-
-double* CUDAcalculateShade(double* &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
-    double* shadeArr = new double[(height - 2) * (width - 2)];
-    double *devicePixelArr, *deviceShadeArr;
-
-    dim3 blockSize(BLOCK_DIM, BLOCK_DIM);
-    dim3 gridSize((width + (BLOCK_DIM-1))/BLOCK_DIM, (height + (BLOCK_DIM-1))/BLOCK_DIM);
-
-    // Real row width on gpu
-    size_t pixelPitch, shadePitch;
-
-    // Allocate arrays on gpu
-    cudaMallocPitch(&devicePixelArr, &pixelPitch, width*sizeof(double), height);
-    cudaMallocPitch(&deviceShadeArr, &shadePitch, (width-2)*sizeof(double), height-2);
-
-    // Copy pixel array values to gpu
-    cudaMemcpy2D(devicePixelArr, pixelPitch, pixelArray, width*sizeof(double), width*sizeof(double), height, cudaMemcpyHostToDevice);
-
-    calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, height, width, pixelPitch, shadePitch, azimuth, altitude);
-
-    // Copy shade array values to host
-    cudaMemcpy2D(shadeArr, (width-2)*sizeof(double), deviceShadeArr, shadePitch, (width-2)*sizeof(double), height-2, cudaMemcpyDeviceToHost);
-
-    cudaFree(devicePixelArr);
-    cudaFree(deviceShadeArr);
     return shadeArr;
 }
 
@@ -244,13 +214,17 @@ int main() {
     std::cout<<"Saving preview...\n";
     saveToJPEG("pre_shade.jpeg", pixelArr, height, width);
 
+    std::cout<<pixelArr[25000]<<"\n";
+
     std::cout<<"Calculating shade...\n";
     auto start = std::chrono::high_resolution_clock::now();
-    double* shadeArr = CUDAcalculateShade(pixelArr, height, width);
+    double* shadeArr = calculateShade(pixelArr, height, width);
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout<<"Applying shade...\n";
     applyShade(pixelArr, shadeArr, height, width);
+
+    std::cout<<pixelArr[25000]<<"\n";
 
     std::cout<<"Saving preview...\n";
     saveToJPEG("post_shade.jpeg", pixelArr, height, width);
@@ -261,3 +235,4 @@ int main() {
 
     return 0;
 }
+

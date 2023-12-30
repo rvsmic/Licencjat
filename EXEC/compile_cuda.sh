@@ -1,1 +1,1 @@
-g++ -std=c++17 -o cuda ../CUDA/main.cpp -lgdal -ljpeg
+nvcc -std=c++11 -o cuda ../CUDA/main.cu -lgdal -ljpeg
