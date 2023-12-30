@@ -4,6 +4,7 @@
 #include <jpeglib.h>
 #include <vector>
 #include <cmath>
+#include <chrono>
 
 typedef unsigned int uint;
 typedef unsigned char uchar;
@@ -217,11 +218,15 @@ int main() {
     std::cout<<"Saving preview...\n";
     saveToJPEG("pre_shade.jpeg", pixelArr, height, width);
     std::cout<<"Calculating shade...\n";
+    auto start = std::chrono::high_resolution_clock::now();
     std::vector<std::vector<double>> shadeArr = calculateShade(pixelArr, height, width);
+    auto end = std::chrono::high_resolution_clock::now();
     std::cout<<"Applying shade...\n";
     applyShade(pixelArr, shadeArr, height, width);
     std::cout<<"Saving preview...\n";
     saveToJPEG("post_shade.jpeg", pixelArr, height, width);
     std::cout<<"Done!\n";
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout<<"Shade function time: "<<duration.count()<<" ms\n";
     return 0;
 }
