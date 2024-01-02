@@ -1,9 +1,11 @@
 #include <iostream>
-#include <gdal.h>
-#include <gdal_priv.h>
+#include <gdal/gdal.h>
+#include <gdal/gdal_priv.h>
 #include <jpeglib.h>
 #include <cmath>
 #include <chrono>
+
+#define GDAL_BLOCK_DIM 256
 
 typedef unsigned int uint;
 typedef unsigned char uchar;
@@ -82,7 +84,7 @@ float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
     // Path for input data folder
     std::string path = "../DATA/IN/" + filename;
     // Pixel data vector
-    float* elevationData;
+    float* elevationData = nullptr;
 
     // Load GeoTIFF
     auto *poDataset = (GDALDataset *) GDALOpen(path.c_str(), GA_ReadOnly);
@@ -99,21 +101,41 @@ float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
         // Resize for height
         elevationData = new float[height * width]();
 
-        float pixelHeight;
         // Read and save to vector
-        for (int y = 0; y < nYSize; y++) {
-            for (int x = 0; x < nXSize; x++) {
-                // Get pixel value from dataset
-                CPLErr err = poDataset->GetRasterBand(1)->RasterIO(GF_Read, x, y, 1, 1, &pixelHeight, 1, 1, GDT_Float32, 0,0);
+        for (int y = 0; y < nYSize; y += GDAL_BLOCK_DIM) {
+            for (int x = 0; x < nXSize; x += GDAL_BLOCK_DIM) {
+                // Reading block size
+                int readWidth = min(GDAL_BLOCK_DIM, nXSize - x);
+                int readHeight = min(GDAL_BLOCK_DIM, nYSize - y);
+
+                float* blockData = new float[readWidth * readHeight]();
+
+                // Get block values from dataset
+                CPLErr err = poDataset->GetRasterBand(1)->RasterIO(
+                    GF_Read, x, y, readWidth, readHeight,
+                    blockData, readWidth, readHeight, GDT_Float32,
+                    0,0
+                );
 
                 // Check for error
                 if (err == CE_None) {
-                    elevationData[y*width + x] = pixelHeight;
+                    // Copy data from block to the pixel array
+                    for (int i = 0; i < readHeight; ++i) {
+                        for (int j = 0; j < readWidth; ++j) {
+                            elevationData[(y+i)*width + x+j] = blockData[i*readWidth + j];
+                        }
+                    }
                 } else {
                     readFailure = true;
-                    std::cerr<<"Pixel value read failure: ("<<x<<", "<<y<<")"<<std::endl;
+                    std::cerr<<"Block values read failure: ("<<x<<", "<<y<<")"<<std::endl;
+                    delete[] blockData;
                     break;
                 }
+
+                delete[] blockData;
+            }
+            if (readFailure) {
+                break;
             }
         }
 
@@ -125,8 +147,9 @@ float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
     GDALDestroyDriverManager();
 
     // If there was an error with reading
-    if(readFailure) {
+    if(readFailure && elevationData != nullptr) {
         delete[] elevationData;
+        elevationData = nullptr;
     }
 
     return elevationData;
