@@ -1,6 +1,6 @@
 #include <iostream>
-#include <gdal/gdal.h>
-#include <gdal/gdal_priv.h>
+#include <gdal.h>
+#include <gdal_priv.h>
 #include <jpeglib.h>
 #include <cmath>
 #include <chrono>
@@ -9,13 +9,13 @@ typedef unsigned int uint;
 typedef unsigned char uchar;
 
 // Calculate shade on a vector of vectors of pixels
-double* calculateShade(double* &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
+float* calculateShade(float* &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
     // Vector for shaded map
-    double* shadeArr = new double[(height - 2) * (width - 2)];
+    float* shadeArr = new float[(height - 2) * (width - 2)];
     int zenithDegree = 90 - altitude;
-    double zenithRadian = double(zenithDegree) * (M_PI / 180);
+    float zenithRadian = float(zenithDegree) * (M_PI / 180);
     int azimuthMath = (360 - azimuth + 90) % 360;
-    double azimuthRadian = double(azimuthMath) * (M_PI / 180);
+    float azimuthRadian = float(azimuthMath) * (M_PI / 180);
 
     // Cell size for shading - "real" pixel size -> bigger = less accurate shading
     int cellSize = 5;
@@ -26,7 +26,7 @@ double* calculateShade(double* &pixelArray, const uint height, const uint width,
         // Print current row number
         for(int j=1; j < width - 1; ++j) {
             // Change in height in x-axis
-            double changeX = (
+            float changeX = (
                 (
                     pixelArray[((i-1)*width) + j + 1] + (2 * pixelArray[(i*width) + j + 1]) + pixelArray[((i+1)*width) + j + 1]
                 ) - (
@@ -34,7 +34,7 @@ double* calculateShade(double* &pixelArray, const uint height, const uint width,
                 )
             ) / (8 * cellSize);
             // Change in height in y-axis
-            double changeY = (
+            float changeY = (
                 (
                     pixelArray[((i+1)*width) + j - 1] + (2 * pixelArray[((i+1)*width) + j]) + pixelArray[((i+1)*width) + j + 1]
                 ) - (
@@ -42,9 +42,9 @@ double* calculateShade(double* &pixelArray, const uint height, const uint width,
                 )
             ) / (8 * cellSize);
             // Final slope radian
-            double slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
+            float slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
             // Slope aspect radian
-            double aspectRadian;
+            float aspectRadian;
             if (changeX != 0) {
                 aspectRadian = atan2(changeY, -changeX);
                 if (aspectRadian < 0) {
@@ -60,7 +60,7 @@ double* calculateShade(double* &pixelArray, const uint height, const uint width,
                 }
             }
             // Shade value for pixel
-            double hillShade = 255.0 * (
+            float hillShade = 255.0 * (
                 (
                     cos(zenithRadian) * cos(slopeRadian)
                 ) + (
@@ -77,12 +77,12 @@ double* calculateShade(double* &pixelArray, const uint height, const uint width,
 }
 
 // Load GeoTIFF file
-double* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
+float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
     GDALAllRegister();
     // Path for input data folder
     std::string path = "../DATA/IN/" + filename;
     // Pixel data vector
-    double* elevationData;
+    float* elevationData;
 
     // Load GeoTIFF
     auto *poDataset = (GDALDataset *) GDALOpen(path.c_str(), GA_ReadOnly);
@@ -97,14 +97,14 @@ double* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
         width = nXSize;
 
         // Resize for height
-        elevationData = new double[height * width]();
+        elevationData = new float[height * width]();
 
-        double pixelHeight;
+        float pixelHeight;
         // Read and save to vector
         for (int y = 0; y < nYSize; y++) {
             for (int x = 0; x < nXSize; x++) {
                 // Get pixel value from dataset
-                CPLErr err = poDataset->GetRasterBand(1)->RasterIO(GF_Read, x, y, 1, 1, &pixelHeight, 1, 1, GDT_Float64, 0,0);
+                CPLErr err = poDataset->GetRasterBand(1)->RasterIO(GF_Read, x, y, 1, 1, &pixelHeight, 1, 1, GDT_Float32, 0,0);
 
                 // Check for error
                 if (err == CE_None) {
@@ -132,7 +132,7 @@ double* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
     return elevationData;
 }
 
-void applyShade(double* &pixels, double* &shade, const uint height, const uint width) {
+void applyShade(float* &pixels, float* &shade, const uint height, const uint width) {
     for (int i=1; i < height - 1; ++i) {
         for (int j=1; j < width - 1; ++j) {
             pixels[(i*width) + j] += shade[((i-1)*(width-2)) + j - 1];
@@ -140,11 +140,11 @@ void applyShade(double* &pixels, double* &shade, const uint height, const uint w
     }
 }
 
-uchar* normalisePixels(double* &pixels, const uint height, const uint width) {
+uchar* normalisePixels(float* &pixels, const uint height, const uint width) {
     auto* normalisedPixels = new uchar[height * width]();
 
     // Find min and max values
-    double minVal = pixels[0], maxVal = pixels[0];
+    float minVal = pixels[0], maxVal = pixels[0];
     for (int i=0;i<height;++i) {
         for (int j=0;j<width;++j) {
             if (pixels[(i*width) + j] < minVal) minVal = pixels[(i*width) + j];
@@ -153,7 +153,7 @@ uchar* normalisePixels(double* &pixels, const uint height, const uint width) {
     }
 
     // Calculate the difference
-    double difference = maxVal - minVal;
+    float difference = maxVal - minVal;
 
     // Normalise the values
     for (int i=0; i < height; ++i) {
@@ -166,7 +166,7 @@ uchar* normalisePixels(double* &pixels, const uint height, const uint width) {
 }
 
 // Generate jpg preview of a tiff file
-void saveToJPEG(const std::string& fileName, double* &pixels, const uint height, const uint width) {
+void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, const uint width) {
     jpeg_compress_struct info{};
     jpeg_error_mgr err{};
 
@@ -208,7 +208,7 @@ void saveToJPEG(const std::string& fileName, double* &pixels, const uint height,
 int main() {
     uint height = 0, width = 0;
     std::cout<<"Loading image...\n";
-    double* pixelArr = loadGeoTIFF("fiji.tif", height, width);
+    float* pixelArr = loadGeoTIFF("fiji.tif", height, width);
     std::cout<<"Image dimensions: "<<height<<" "<<width<<"\n";
     
     std::cout<<"Saving preview...\n";
@@ -218,7 +218,7 @@ int main() {
 
     std::cout<<"Calculating shade...\n";
     auto start = std::chrono::high_resolution_clock::now();
-    double* shadeArr = calculateShade(pixelArr, height, width);
+    float* shadeArr = calculateShade(pixelArr, height, width);
     auto end = std::chrono::high_resolution_clock::now();
 
     std::cout<<"Applying shade...\n";

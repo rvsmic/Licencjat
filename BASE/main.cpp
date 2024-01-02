@@ -1,6 +1,6 @@
 #include <iostream>
-#include <gdal/gdal.h>
-#include <gdal/gdal_priv.h>
+#include <gdal.h>
+#include <gdal_priv.h>
 #include <jpeglib.h>
 #include <vector>
 #include <cmath>
@@ -10,14 +10,14 @@ typedef unsigned int uint;
 typedef unsigned char uchar;
 
 // Calculate shade on a vector of vectors of pixels
-std::vector <std::vector<double>> calculateShade(std::vector <std::vector<double>> &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
+std::vector <std::vector<float>> calculateShade(std::vector <std::vector<float>> &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
     // Vector for shaded map
-    std::vector<std::vector<double>> shadeArr(height - 2, std::vector<double> (width - 2));
-    std::vector<double> newRow(width - 2);
+    std::vector<std::vector<float>> shadeArr(height - 2, std::vector<float> (width - 2));
+    std::vector<float> newRow(width - 2);
     int zenithDegree = 90 - altitude;
-    double zenithRadian = double(zenithDegree) * (M_PI / 180);
+    float zenithRadian = float(zenithDegree) * (M_PI / 180);
     int azimuthMath = (360 - azimuth + 90) % 360;
-    double azimuthRadian = double(azimuthMath) * (M_PI / 180);
+    float azimuthRadian = float(azimuthMath) * (M_PI / 180);
 
     // Cell size for shading - "real" pixel size -> bigger = less accurate shading
     int cellSize = 5;
@@ -29,7 +29,7 @@ std::vector <std::vector<double>> calculateShade(std::vector <std::vector<double
         //std::cout<<i<<std::endl;
         for(int j=1; j < width - 1; ++j) {
             // Change in height in x-axis
-            double changeX = (
+            float changeX = (
                 (
                     pixelArray[i - 1][j + 1] + (2 * pixelArray[i][j + 1]) + pixelArray[i + 1][j + 1]
                 ) - (
@@ -37,7 +37,7 @@ std::vector <std::vector<double>> calculateShade(std::vector <std::vector<double
                 )
             ) / (8 * cellSize);
             // Change in height in y-axis
-            double changeY = (
+            float changeY = (
                 (
                     pixelArray[i + 1][j - 1] + (2 * pixelArray[i + 1][j]) + pixelArray[i + 1][j + 1]
                 ) - (
@@ -45,9 +45,9 @@ std::vector <std::vector<double>> calculateShade(std::vector <std::vector<double
                 )
             ) / (8 * cellSize);
             // Final slope radian
-            double slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
+            float slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
             // Slope aspect radian
-            double aspectRadian;
+            float aspectRadian;
             if (changeX != 0) {
                 aspectRadian = atan2(changeY, -changeX);
                 if (aspectRadian < 0) {
@@ -63,7 +63,7 @@ std::vector <std::vector<double>> calculateShade(std::vector <std::vector<double
                 }
             }
             // Shade value for pixel
-            double hillShade = 255.0 * (
+            float hillShade = 255.0 * (
                 (
                     cos(zenithRadian) * cos(slopeRadian)
                 ) + (
@@ -82,12 +82,12 @@ std::vector <std::vector<double>> calculateShade(std::vector <std::vector<double
 }
 
 // Load GeoTIFF file
-std::vector<std::vector<double>> loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
+std::vector<std::vector<float>> loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
     GDALAllRegister();
     // Path for input data folder
     std::string path = "../DATA/IN/" + filename;
     // Pixel data vector
-    std::vector<std::vector<double>> elevationData;
+    std::vector<std::vector<float>> elevationData;
 
     // Load GeoTIFF
     auto *poDataset = (GDALDataset *) GDALOpen(path.c_str(), GA_ReadOnly);
@@ -102,14 +102,14 @@ std::vector<std::vector<double>> loadGeoTIFF(const std::string &filename, uint &
         width = nXSize;
 
         // Resize for height
-        elevationData.resize(nYSize, std::vector<double>(nXSize, 0.0));
+        elevationData.resize(nYSize, std::vector<float>(nXSize, 0.0));
 
-        double pixelHeight;
+        float pixelHeight;
         // Read and save to vector
         for (int y = 0; y < nYSize; y++) {
             for (int x = 0; x < nXSize; x++) {
                 // Get pixel value from dataset
-                CPLErr err = poDataset->GetRasterBand(1)->RasterIO(GF_Read, x, y, 1, 1, &pixelHeight, 1, 1, GDT_Float64, 0,0);
+                CPLErr err = poDataset->GetRasterBand(1)->RasterIO(GF_Read, x, y, 1, 1, &pixelHeight, 1, 1, GDT_Float32, 0,0);
 
                 // Check for error
                 if (err == CE_None) {
@@ -137,7 +137,7 @@ std::vector<std::vector<double>> loadGeoTIFF(const std::string &filename, uint &
     return elevationData;
 }
 
-void applyShade(std::vector<std::vector<double>> &pixels, const std::vector<std::vector<double>> &shade, const uint height, const uint width) {
+void applyShade(std::vector<std::vector<float>> &pixels, const std::vector<std::vector<float>> &shade, const uint height, const uint width) {
     for (int i=1; i < height - 1; ++i) {
         for (int j=1; j < width - 1; ++j) {
             pixels[i][j] += shade[i-1][j-1];
@@ -145,11 +145,11 @@ void applyShade(std::vector<std::vector<double>> &pixels, const std::vector<std:
     }
 }
 
-uchar* normalisePixels(const std::vector<std::vector<double>> &pixels, const uint height, const uint width) {
+uchar* normalisePixels(const std::vector<std::vector<float>> &pixels, const uint height, const uint width) {
     auto* normalisedPixels = new uchar[height * width];
 
     // Find min and max values
-    double minVal = pixels[0][0], maxVal = pixels[0][0];
+    float minVal = pixels[0][0], maxVal = pixels[0][0];
     for (const auto& row : pixels) {
         for (const auto& pixel : row) {
             if (pixel < minVal) minVal = pixel;
@@ -158,7 +158,7 @@ uchar* normalisePixels(const std::vector<std::vector<double>> &pixels, const uin
     }
 
     // Calculate the difference
-    double difference = maxVal - minVal;
+    float difference = maxVal - minVal;
 
     // Normalise the values
     for (int i=0; i < height; ++i) {
@@ -171,7 +171,7 @@ uchar* normalisePixels(const std::vector<std::vector<double>> &pixels, const uin
 }
 
 // Generate jpg preview of a tiff file
-void saveToJPEG(const std::string& fileName, std::vector<std::vector<double>>& pixels, const uint height, const uint width) {
+void saveToJPEG(const std::string& fileName, std::vector<std::vector<float>>& pixels, const uint height, const uint width) {
     jpeg_compress_struct info{};
     jpeg_error_mgr err{};
 
@@ -213,13 +213,13 @@ void saveToJPEG(const std::string& fileName, std::vector<std::vector<double>>& p
 int main() {
     uint height = 0, width = 0;
     std::cout<<"Loading image...\n";
-    std::vector <std::vector<double>> pixelArr = loadGeoTIFF("fiji.tif", height, width);
+    std::vector <std::vector<float>> pixelArr = loadGeoTIFF("fiji.tif", height, width);
     std::cout<<"Image dimensions: "<<pixelArr.size()<<" "<<pixelArr[0].size()<<"\n";
     std::cout<<"Saving preview...\n";
     saveToJPEG("pre_shade.jpeg", pixelArr, height, width);
     std::cout<<"Calculating shade...\n";
     auto start = std::chrono::high_resolution_clock::now();
-    std::vector<std::vector<double>> shadeArr = calculateShade(pixelArr, height, width);
+    std::vector<std::vector<float>> shadeArr = calculateShade(pixelArr, height, width);
     auto end = std::chrono::high_resolution_clock::now();
     std::cout<<"Applying shade...\n";
     applyShade(pixelArr, shadeArr, height, width);
