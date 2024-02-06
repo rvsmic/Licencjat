@@ -1,6 +1,6 @@
 #include <iostream>
-#include <gdal.h>
-#include <gdal_priv.h>
+#include <gdal/gdal.h>
+#include <gdal/gdal_priv.h>
 #include <jpeglib.h>
 #include <vector>
 #include <cmath>
@@ -189,7 +189,7 @@ void saveToJPEG(const std::string& fileName, std::vector<std::vector<float>>& pi
 
     info.image_width = width;
     info.image_height = height;
-    info.input_components = 1; // Jedna składowa - skala szarości
+    info.input_components = 1;
     info.in_color_space = JCS_GRAYSCALE;
 
     jpeg_set_defaults(&info);

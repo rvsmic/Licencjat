@@ -105,8 +105,8 @@ float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
         for (int y = 0; y < nYSize; y += GDAL_BLOCK_DIM) {
             for (int x = 0; x < nXSize; x += GDAL_BLOCK_DIM) {
                 // Reading block size
-                int readWidth = min(GDAL_BLOCK_DIM, nXSize - x);
-                int readHeight = min(GDAL_BLOCK_DIM, nYSize - y);
+                int readWidth = std::min(GDAL_BLOCK_DIM, nXSize - x);
+                int readHeight = std::min(GDAL_BLOCK_DIM, nYSize - y);
 
                 float* blockData = new float[readWidth * readHeight]();
 
@@ -207,7 +207,7 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
 
     info.image_width = width;
     info.image_height = height;
-    info.input_components = 1; // Jedna składowa - skala szarości
+    info.input_components = 1;
     info.in_color_space = JCS_GRAYSCALE;
 
     jpeg_set_defaults(&info);
@@ -237,8 +237,6 @@ int main() {
     std::cout<<"Saving preview...\n";
     saveToJPEG("pre_shade.jpeg", pixelArr, height, width);
 
-    std::cout<<pixelArr[25000]<<"\n";
-
     std::cout<<"Calculating shade...\n";
     auto start = std::chrono::high_resolution_clock::now();
     float* shadeArr = calculateShade(pixelArr, height, width);
@@ -246,8 +244,6 @@ int main() {
 
     std::cout<<"Applying shade...\n";
     applyShade(pixelArr, shadeArr, height, width);
-
-    std::cout<<pixelArr[25000]<<"\n";
 
     std::cout<<"Saving preview...\n";
     saveToJPEG("post_shade.jpeg", pixelArr, height, width);
