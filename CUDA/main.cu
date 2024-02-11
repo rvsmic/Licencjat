@@ -97,10 +97,10 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
         size_t dataBlockHeight = ((freeGPUBytes*0.9/sizeof(float)) + 2*width - 4) / (2 * width - 2);
         size_t iterationCount = (totalExpectedSize) / (((dataBlockHeight*width)+((dataBlockHeight-2)*(width-2)))*sizeof(float));
         
-        // Real row width on gpu
+        // Real row width on GPU
         size_t pixelPitch, shadePitch;
 
-        // Allocate arrays on gpu
+        // Allocate arrays on GPU
         cudaMallocPitch(&devicePixelArr, &pixelPitch, width*sizeof(float), dataBlockHeight);
         cudaMallocPitch(&deviceShadeArr, &shadePitch, (width-2)*sizeof(float), dataBlockHeight-2);
 
@@ -110,7 +110,7 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
         for(size_t i = 0; i < iterationCount; ++i) {
             // Copy pixel array values to GPU
             cudaMemcpy2D(devicePixelArr, pixelPitch, &pixelArray[i*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), dataBlockHeight, cudaMemcpyHostToDevice);
-
+            
             calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, dataBlockHeight, width, pixelPitch, shadePitch, azimuth, altitude);
             
             // Check for error
@@ -118,13 +118,13 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
             if (error != cudaSuccess) {
                 std::cout<<"\nCUDA error: "<<cudaGetErrorString(error)<<"\n\n";
             }
-
             // Copy shade array values to host
             cudaMemcpy2D(&shadeArr[i*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), dataBlockHeight-2, cudaMemcpyDeviceToHost);
         }
 
-        // Copy pixel array values to gpu
-        cudaMemcpy2D(devicePixelArr, pixelPitch, &pixelArray[iterationCount*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), dataBlockHeight, cudaMemcpyHostToDevice);
+        size_t heightLeft = (height - iterationCount*dataBlockHeight);
+        // Copy pixel array values to GPU
+        cudaMemcpy2D(devicePixelArr, pixelPitch, &pixelArray[iterationCount*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), heightLeft, cudaMemcpyHostToDevice);
 
         calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, dataBlockHeight, width, pixelPitch, shadePitch, azimuth, altitude);
         
@@ -135,19 +135,19 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
         }
 
         // Copy shade array values to host
-        cudaMemcpy2D(&shadeArr[iterationCount*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), dataBlockHeight-2, cudaMemcpyDeviceToHost);
+        cudaMemcpy2D(&shadeArr[iterationCount*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), heightLeft-2, cudaMemcpyDeviceToHost);
     } else {
         dim3 blockSize(BLOCK_DIM, BLOCK_DIM);
-        dim3 gridSize((height + (BLOCK_DIM-1))/BLOCK_DIM, (width + (BLOCK_DIM-1))/BLOCK_DIM); // na odwrot
+        dim3 gridSize((height + (BLOCK_DIM-1))/BLOCK_DIM, (width + (BLOCK_DIM-1))/BLOCK_DIM);
 
-        // Real row width on gpu
+        // Real row width on GPU
         size_t pixelPitch, shadePitch;
 
-        // Allocate arrays on gpu
+        // Allocate arrays on GPU
         cudaMallocPitch(&devicePixelArr, &pixelPitch, width*sizeof(float), height);
         cudaMallocPitch(&deviceShadeArr, &shadePitch, (width-2)*sizeof(float), height-2);
 
-        // Copy pixel array values to gpu
+        // Copy pixel array values to GPU
         cudaMemcpy2D(devicePixelArr, pixelPitch, pixelArray, width*sizeof(float), width*sizeof(float), height, cudaMemcpyHostToDevice);
 
         calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, height, width, pixelPitch, shadePitch, azimuth, altitude);
