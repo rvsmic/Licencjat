@@ -1,1 +1,1 @@
-nvcc -std=c++11 -o cuda ../CUDA/main.cu -lgdal -ljpeg
+nvcc -std=c++11 -o "$(dirname "$0")/cuda" "$(dirname "$0")/../CUDA/main.cu" -lgdal -ljpeg
