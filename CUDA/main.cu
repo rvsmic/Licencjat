@@ -92,50 +92,109 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
     size_t totalExpectedSize = (height*width + (height-2) * (width-2)) * sizeof(float);
     
     if(totalExpectedSize > freeGPUBytes) {
-        std::cout<<"Too much data at once for GPU memory ("<<totalExpectedSize/1024.0/1024.0<<" MB > "<<freeGPUBytes/1024.0/1024.0<<" MB) - splitting\n";
+        printf("Too much data at once for GPU memory (%.2f MB > %.2f MB) - splitting\n", totalExpectedSize/1024.0/1024.0, freeGPUBytes/1024.0/1024.0);
         // Constant width and varying height
-        size_t dataBlockHeight = ((freeGPUBytes*0.9/sizeof(float)) + 2*width - 4) / (2 * width - 2);
+        size_t dataBlockHeight = 2000;((freeGPUBytes*0.9/sizeof(float)) + 2*width - 4) / (2 * width - 2);
         size_t iterationCount = (totalExpectedSize) / (((dataBlockHeight*width)+((dataBlockHeight-2)*(width-2)))*sizeof(float));
         
         // Real row width on GPU
         size_t pixelPitch, shadePitch;
 
-        // Allocate arrays on GPU
-        cudaMallocPitch(&devicePixelArr, &pixelPitch, width*sizeof(float), dataBlockHeight);
-        cudaMallocPitch(&deviceShadeArr, &shadePitch, (width-2)*sizeof(float), dataBlockHeight-2);
+        cudaDeviceProp cp;
+        cudaGetDeviceProperties(&cp,0);
+        // Can run concurrent kernels
+        if(cp.concurrentKernels) {
+            // Declare cuda streams
+            const uint streamCount = 3;
+            cudaStream_t streams[streamCount];
 
-        dim3 blockSize(BLOCK_DIM, BLOCK_DIM);
-        dim3 gridSize((dataBlockHeight + (BLOCK_DIM-1))/BLOCK_DIM, (width + (BLOCK_DIM-1))/BLOCK_DIM);
+            printf("Running %d concurrent streams\n", streamCount);
+            
+            // Define cuda streams
+            for(int i = 0; i < streamCount; ++i) {
+                cudaStreamCreate(&streams[i]);
+            }
+            
+            // Allocate arrays on GPU
+            cudaMallocPitch(&devicePixelArr, &pixelPitch, width*sizeof(float), dataBlockHeight);
+            cudaMallocPitch(&deviceShadeArr, &shadePitch, (width-2)*sizeof(float), dataBlockHeight-2);
+
+            dim3 blockSize(BLOCK_DIM, BLOCK_DIM);
+            dim3 gridSize((dataBlockHeight + (BLOCK_DIM-1))/BLOCK_DIM, (width + (BLOCK_DIM-1))/BLOCK_DIM);
         
-        for(size_t i = 0; i < iterationCount; ++i) {
+            for(size_t i = 0; i < iterationCount; ++i) {
+                // Copy pixel array values to GPU
+                cudaMemcpy2DAsync(devicePixelArr, pixelPitch, &pixelArray[i*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), dataBlockHeight, cudaMemcpyHostToDevice, streams[i%streamCount]);
+            
+                calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, dataBlockHeight, width, pixelPitch, shadePitch, azimuth, altitude);
+            
+                // Check for error
+                cudaError_t error = cudaGetLastError();
+                if(error != cudaSuccess) {
+                    printf("\nCUDA error: %s\n\n", cudaGetErrorString(error));
+                }
+                // Copy shade array values to host
+                cudaMemcpy2DAsync(&shadeArr[i*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), dataBlockHeight-2, cudaMemcpyDeviceToHost, streams[i%streamCount]);
+            }
+
+            size_t heightLeft = (height - iterationCount*dataBlockHeight);
             // Copy pixel array values to GPU
-            cudaMemcpy2D(devicePixelArr, pixelPitch, &pixelArray[i*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), dataBlockHeight, cudaMemcpyHostToDevice);
-            
+            cudaMemcpy2DAsync(devicePixelArr, pixelPitch, &pixelArray[iterationCount*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), heightLeft, cudaMemcpyHostToDevice, streams[iterationCount%streamCount]);
+
             calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, dataBlockHeight, width, pixelPitch, shadePitch, azimuth, altitude);
-            
+        
             // Check for error
             cudaError_t error = cudaGetLastError();
             if (error != cudaSuccess) {
-                std::cout<<"\nCUDA error: "<<cudaGetErrorString(error)<<"\n\n";
+                printf("\nCUDA error: %s\n\n", cudaGetErrorString(error));
             }
+
             // Copy shade array values to host
-            cudaMemcpy2D(&shadeArr[i*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), dataBlockHeight-2, cudaMemcpyDeviceToHost);
-        }
+            cudaMemcpy2DAsync(&shadeArr[iterationCount*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), heightLeft-2, cudaMemcpyDeviceToHost, streams[iterationCount%streamCount]);
+            
+            // Wait for completion of calculations and then destroy streams
+            for(int i = 0; i < streamCount; ++i) {
+                cudaStreamDestroy(streams[i]);
+            }
+        } else {
+            printf("Concurrent streams not available\n");
+            // Allocate arrays on GPU
+            cudaMallocPitch(&devicePixelArr, &pixelPitch, width*sizeof(float), dataBlockHeight);
+            cudaMallocPitch(&deviceShadeArr, &shadePitch, (width-2)*sizeof(float), dataBlockHeight-2);
 
-        size_t heightLeft = (height - iterationCount*dataBlockHeight);
-        // Copy pixel array values to GPU
-        cudaMemcpy2D(devicePixelArr, pixelPitch, &pixelArray[iterationCount*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), heightLeft, cudaMemcpyHostToDevice);
-
-        calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, dataBlockHeight, width, pixelPitch, shadePitch, azimuth, altitude);
+            dim3 blockSize(BLOCK_DIM, BLOCK_DIM);
+            dim3 gridSize((dataBlockHeight + (BLOCK_DIM-1))/BLOCK_DIM, (width + (BLOCK_DIM-1))/BLOCK_DIM);
         
-        // Check for error
-        cudaError_t error = cudaGetLastError();
-        if (error != cudaSuccess) {
-            std::cout<<"\nCUDA error: "<<cudaGetErrorString(error)<<"\n\n";
-        }
+            for(size_t i = 0; i < iterationCount; ++i) {
+                // Copy pixel array values to GPU
+                cudaMemcpy2D(devicePixelArr, pixelPitch, &pixelArray[i*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), dataBlockHeight, cudaMemcpyHostToDevice);
+            
+                calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, dataBlockHeight, width, pixelPitch, shadePitch, azimuth, altitude);
+            
+                // Check for error
+                cudaError_t error = cudaGetLastError();
+                if(error != cudaSuccess) {
+                    printf("\nCUDA error: %s\n\n", cudaGetErrorString(error));
+                }
+                // Copy shade array values to host
+                cudaMemcpy2D(&shadeArr[i*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), dataBlockHeight-2, cudaMemcpyDeviceToHost);
+            }
 
-        // Copy shade array values to host
-        cudaMemcpy2D(&shadeArr[iterationCount*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), heightLeft-2, cudaMemcpyDeviceToHost);
+            size_t heightLeft = (height - iterationCount*dataBlockHeight);
+            // Copy pixel array values to GPU
+            cudaMemcpy2D(devicePixelArr, pixelPitch, &pixelArray[iterationCount*width*dataBlockHeight], width*sizeof(float), width*sizeof(float), heightLeft, cudaMemcpyHostToDevice);
+
+            calculateShadeKernel <<< gridSize, blockSize >>> (devicePixelArr, deviceShadeArr, dataBlockHeight, width, pixelPitch, shadePitch, azimuth, altitude);
+        
+            // Check for error
+            cudaError_t error = cudaGetLastError();
+            if (error != cudaSuccess) {
+                printf("\nCUDA error: %s\n\n", cudaGetErrorString(error));
+            }
+
+            // Copy shade array values to host
+            cudaMemcpy2D(&shadeArr[iterationCount*(width-2)*(dataBlockHeight-2)], (width-2)*sizeof(float), deviceShadeArr, shadePitch, (width-2)*sizeof(float), heightLeft-2, cudaMemcpyDeviceToHost);
+        }
     } else {
         dim3 blockSize(BLOCK_DIM, BLOCK_DIM);
         dim3 gridSize((height + (BLOCK_DIM-1))/BLOCK_DIM, (width + (BLOCK_DIM-1))/BLOCK_DIM);
@@ -155,7 +214,7 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
         // Check for error
         cudaError_t error = cudaGetLastError();
         if (error != cudaSuccess) {
-            std::cout<<"\nCUDA error: "<<cudaGetErrorString(error)<<"\n\n";
+            printf("\nCUDA error: %s\n\n", cudaGetErrorString(error));
         }
 
         // Copy shade array values to host
@@ -298,11 +357,11 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
 
     info.image_width = width;
     info.image_height = height;
-    info.input_components = 1; // Jedna składowa - skala szarości
+    info.input_components = 1;
     info.in_color_space = JCS_GRAYSCALE;
 
     jpeg_set_defaults(&info);
-    jpeg_set_quality(&info, 100, TRUE);
+    jpeg_set_quality(&info, 90, TRUE);
 
     jpeg_start_compress(&info, TRUE);
 
@@ -321,27 +380,27 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
 
 int main() {
     uint height = 0, width = 0;
-    std::cout<<"Loading image...\n";
+    printf("Loading image...\n");
     float* pixelArr = loadGeoTIFF("fiji.tif", height, width);
-    std::cout<<"Image dimensions: "<<height<<" "<<width<<"\n";
+    printf("Image dimensions:\n    y: %d\n    x: %d\n", height, width);
     
-    std::cout<<"Saving preview...\n";
+    printf("Saving preview...\n");
     saveToJPEG("pre_shade.jpeg", pixelArr, height, width);
 
-    std::cout<<"Calculating shade...\n";
+    printf("Calculating shade...\n");
     auto start = std::chrono::high_resolution_clock::now();
     float* shadeArr = calculateShade(pixelArr, height, width);
     auto end = std::chrono::high_resolution_clock::now();
 
-    std::cout<<"Applying shade...\n";
+    printf("Applying shade...\n");
     applyShade(pixelArr, shadeArr, height, width);
 
-    std::cout<<"Saving preview...\n";
+    printf("Saving preview...\n");
     saveToJPEG("post_shade.jpeg", pixelArr, height, width);
 
-    std::cout<<"Done!\n";
+    printf("Done!\n");
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    std::cout<<"Shade function time: "<<duration.count()<<" ms\n";
+    printf("Shade function time: %d ms\n", int(duration.count()));
 
     return 0;
 }
