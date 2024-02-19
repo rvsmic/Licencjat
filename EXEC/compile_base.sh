@@ -1,1 +1,1 @@
-g++ -std=c++11 -o "$(dirname "$0")/base" "$(dirname "$0")/../BASE/main.cpp" -lgdal -ljpeg
+g++ -std=c++17 -o "$(dirname "$0")/base" "$(dirname "$0")/../BASE/main.cpp" -lgdal -ljpeg
