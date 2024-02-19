@@ -1,0 +1,6 @@
+echo "Compiling base..."
+"./$(dirname "$0")/compile_base.sh"
+echo "Compiling cuda..."
+"./$(dirname "$0")/compile_cuda.sh"
+echo "Compiling sycl..."
+"./$(dirname "$0")/compile_sycl.sh"

@@ -1,0 +1,1 @@
+icpx -std=c++17 -o "$(dirname "$0")/sycl" "$(dirname "$0")/../SYCL/main.cpp" -fsycl -lgdal -ljpeg
