@@ -9,4 +9,5 @@ EXEC/*
 Local/*
 
 # too big to upload
-DATA/IN/polska.tif
+DATA/IN/poland.tif
+DATA/OUT/shaded_poland.tif

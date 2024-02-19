@@ -5,8 +5,6 @@
 #include <cmath>
 #include <chrono>
 
-#define GDAL_BLOCK_DIM 256
-
 typedef unsigned int uint;
 typedef unsigned char uchar;
 
@@ -87,72 +85,81 @@ float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
     float* elevationData = nullptr;
 
     // Load GeoTIFF
-    auto *poDataset = (GDALDataset *) GDALOpen(path.c_str(), GA_ReadOnly);
-    bool readFailure = false;
+    auto *dataset = (GDALDataset *) GDALOpen(path.c_str(), GA_ReadOnly);
 
     // If file exists
-    if (poDataset != nullptr) {
-        int nXSize = poDataset->GetRasterXSize();
-        int nYSize = poDataset->GetRasterYSize();
+    if (dataset != nullptr) {
+        int nXSize = dataset->GetRasterXSize();
+        int nYSize = dataset->GetRasterYSize();
 
         height = nYSize;
         width = nXSize;
 
-        // Resize for height
+        // Allocate memory for the elevation data
         elevationData = new float[height * width]();
+        
+        // Read data from the dataset
+        CPLErr err = dataset->GetRasterBand(1)->RasterIO(
+            GF_Read, 0, 0, width, height,
+            elevationData, width, height, GDT_Float32, 0, 0
+        );
 
-        // Read and save to vector
-        for (int y = 0; y < nYSize; y += GDAL_BLOCK_DIM) {
-            for (int x = 0; x < nXSize; x += GDAL_BLOCK_DIM) {
-                // Reading block size
-                int readWidth = std::min(GDAL_BLOCK_DIM, nXSize - x);
-                int readHeight = std::min(GDAL_BLOCK_DIM, nYSize - y);
-
-                float* blockData = new float[readWidth * readHeight]();
-
-                // Get block values from dataset
-                CPLErr err = poDataset->GetRasterBand(1)->RasterIO(
-                    GF_Read, x, y, readWidth, readHeight,
-                    blockData, readWidth, readHeight, GDT_Float32,
-                    0,0
-                );
-
-                // Check for error
-                if (err == CE_None) {
-                    // Copy data from block to the pixel array
-                    for (int i = 0; i < readHeight; ++i) {
-                        for (int j = 0; j < readWidth; ++j) {
-                            elevationData[(y+i)*width + x+j] = blockData[i*readWidth + j];
-                        }
-                    }
-                } else {
-                    readFailure = true;
-                    std::cerr<<"Block values read failure: ("<<x<<", "<<y<<")"<<std::endl;
-                    delete[] blockData;
-                    break;
-                }
-
-                delete[] blockData;
-            }
-            if (readFailure) {
-                break;
-            }
+        if (err != CE_None) {
+            std::cerr<<"Failed to write data to the new GeoTIFF dataset."<<std::endl;
+            delete[] elevationData;
         }
-
         // Close dataset
-        GDALClose(poDataset);
+        GDALClose(dataset);
     } else {
         std::cerr<<"Can't open GeoTIFF: "<<path<<std::endl;
     }
     GDALDestroyDriverManager();
 
-    // If there was an error with reading
-    if(readFailure && elevationData != nullptr) {
-        delete[] elevationData;
-        elevationData = nullptr;
+    return elevationData;
+}
+
+// Save GeoTIFF file
+void saveGeoTIFF(const std::string &originalFilename, float* &newData, uint height, uint width) {
+    GDALAllRegister();
+
+    // Path for input data folder
+    std::string inputPath = "../DATA/IN/" + originalFilename;
+
+    // Open the original dataset for reading
+    auto *sourceDataset = (GDALDataset *) GDALOpen(inputPath.c_str(), GA_ReadOnly);
+    if (sourceDataset == nullptr) {
+        std::cerr<<"Can't open GeoTIFF: "<<inputPath<<std::endl;
+        GDALDestroyDriverManager();
+        return;
     }
 
-    return elevationData;
+    // Path for output data folder
+    std::string outputPath = "../DATA/OUT/shaded_" + originalFilename;
+
+    // Create a copy of the original dataset for writing
+    auto *destinationDataset = GetGDALDriverManager()->GetDriverByName("GTiff")->CreateCopy(
+        outputPath.c_str(), sourceDataset, false, NULL, NULL, NULL
+    );
+
+    if (destinationDataset != nullptr) {
+        // Write data to the new dataset
+        CPLErr err = destinationDataset->GetRasterBand(1)->RasterIO(
+            GF_Write, 0, 0, width, height,
+            newData, width, height, GDT_Float32, 0, 0
+        );
+
+        if (err != CE_None) {
+            std::cerr<<"Failed to write data to the new GeoTIFF dataset."<<std::endl;
+        }
+
+        // Close the datasets
+        GDALClose(sourceDataset);
+        GDALClose(destinationDataset);
+    } else {
+        std::cerr<<"Failed to create a new GeoTIFF dataset for writing."<<std::endl;
+    }
+
+    GDALDestroyDriverManager();
 }
 
 void applyShade(float* &pixels, float* &shade, const uint height, const uint width) {
@@ -211,7 +218,7 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
     info.in_color_space = JCS_GRAYSCALE;
 
     jpeg_set_defaults(&info);
-    jpeg_set_quality(&info, 100, TRUE);
+    jpeg_set_quality(&info, 90, TRUE);
 
     jpeg_start_compress(&info, TRUE);
 
@@ -228,10 +235,20 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
     jpeg_destroy_compress(&info);
 }
 
-int main() {
+int main(int argc, char** argv) {
+    std::string tiffFileName = "fiji.tif";
+    if(argc > 1) {
+        tiffFileName = argv[1];
+    }
     uint height = 0, width = 0;
+
     printf("Loading image...\n");
-    float* pixelArr = loadGeoTIFF("fiji.tif", height, width);
+    float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
+    if(height == 0 || width == 0) {
+        printf("Failed to load image\n");
+        return 1;
+    }
+    printf("Loaded image: %s\n", tiffFileName.c_str());
     printf("Image dimensions:\n    y: %d\n    x: %d\n", height, width);
     
     printf("Saving preview...\n");
@@ -244,6 +261,9 @@ int main() {
 
     printf("Applying shade...\n");
     applyShade(pixelArr, shadeArr, height, width);
+
+    printf("Saving shaded tiff...\n");
+    saveGeoTIFF(tiffFileName, pixelArr, height, width);
 
     printf("Saving preview...\n");
     saveToJPEG("post_shade.jpeg", pixelArr, height, width);
