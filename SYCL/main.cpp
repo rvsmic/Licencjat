@@ -5,6 +5,7 @@
 #include <cmath>
 #include <chrono>
 #include <sycl/sycl.hpp>
+#include <fstream>
 
 #define BLOCK_DIM 16
 
@@ -268,12 +269,38 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
     jpeg_destroy_compress(&info);
 }
 
+void saveTimeToFile(const std::string& fileName, const std::string& time) {
+    std::string filePath = "../DATA/OUT/" + fileName;
+    std::ofstream file;
+    file.open(filePath, std::ios::app);
+    file<<time<<"\n";
+    file.close();
+}
+
 int main(int argc, char** argv) {
     std::string tiffFileName = "fiji.tif";
+    bool timeMode = false;
     if(argc > 1) {
         tiffFileName = argv[1];
     }
+    if(argc > 2) {
+        if(std::string(argv[2]) == "time") {
+            timeMode = true;
+        }
+    }
     uint height = 0, width = 0;
+    if(timeMode) {
+        float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
+        if(height == 0 || width == 0) {
+            return 1;
+        }
+        auto start = std::chrono::high_resolution_clock::now();
+        float* shadeArr = calculateShade(pixelArr, height, width);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+        saveTimeToFile("sycl.time", std::to_string(duration.count()));
+        return 0;
+    }
 
     printf("Loading image...\n");
     float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
@@ -303,6 +330,7 @@ int main(int argc, char** argv) {
 
     printf("Done!\n");
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    saveTimeToFile("sycl.time", std::to_string(duration.count()));
     printf("Shade function time: %d ms\n", int(duration.count()));
 
     return 0;

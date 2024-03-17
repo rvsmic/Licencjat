@@ -11,3 +11,6 @@ Local/*
 # too big to upload
 DATA/IN/poland.tif
 DATA/OUT/shaded_poland.tif
+
+# ignore time files
+*.time
