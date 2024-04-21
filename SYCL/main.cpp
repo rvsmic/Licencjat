@@ -88,9 +88,9 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
                     // Shade value for pixel
                     float hillShade = 255.0 * (
                         (
-                            cos(zenithRadian) * cos(slopeRadian)
+                            sycl::native::cos(zenithRadian) * sycl::native::cos(slopeRadian)
                         ) + (
-                            sin(zenithRadian) * sin(slopeRadian) * cos(azimuthRadian - aspectRadian)
+                            sycl::native::sin(zenithRadian) * sycl::native::sin(slopeRadian) * sycl::native::cos(azimuthRadian - aspectRadian)
                         )
                     );
                     if (hillShade < 0) {
@@ -100,6 +100,7 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
                 }
             });
         });
+        deviceQueue.wait();
     } catch (sycl::exception const& e) {
         std::cerr<<"Caught synchronous SYCL exception:\n"<<e.what()<<"\n";
         std::terminate();
