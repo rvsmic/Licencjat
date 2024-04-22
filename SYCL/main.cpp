@@ -213,7 +213,7 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
 float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
     GDALAllRegister();
     // Path for input data folder
-    std::string path = "../DATA/IN/" + filename;
+    std::string path = "../../DATA/IN/" + filename;
     // Pixel data vector
     float* elevationData = nullptr;
 
@@ -256,7 +256,7 @@ void saveGeoTIFF(const std::string &originalFilename, float* &newData, uint heig
     GDALAllRegister();
 
     // Path for input data folder
-    std::string inputPath = "../DATA/IN/" + originalFilename;
+    std::string inputPath = "../../DATA/IN/" + originalFilename;
 
     // Open the original dataset for reading
     auto *sourceDataset = (GDALDataset *) GDALOpen(inputPath.c_str(), GA_ReadOnly);
@@ -267,7 +267,7 @@ void saveGeoTIFF(const std::string &originalFilename, float* &newData, uint heig
     }
 
     // Path for output data folder
-    std::string outputPath = "../DATA/OUT/shaded_" + originalFilename;
+    std::string outputPath = "../../DATA/OUT/shaded_" + originalFilename;
 
     // Create a copy of the original dataset for writing
     auto *destinationDataset = GetGDALDriverManager()->GetDriverByName("GTiff")->CreateCopy(
@@ -336,7 +336,7 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
     jpeg_error_mgr err{};
 
     FILE *file;
-    std::string filePath = "../DATA/OUT/" + fileName;
+    std::string filePath = "../../DATA/OUT/" + fileName;
 
     if ((file = fopen(filePath.c_str(), "wb")) == nullptr) {
         std::cerr<<"Can't open file "<<filePath<<std::endl;
@@ -371,7 +371,7 @@ void saveToJPEG(const std::string& fileName, float* &pixels, const uint height, 
 }
 
 void saveTimeToFile(const std::string& fileName, const std::string& time) {
-    std::string filePath = "../DATA/OUT/" + fileName;
+    std::string filePath = "../../DATA/OUT/" + fileName;
     std::ofstream file;
     file.open(filePath, std::ios::app);
     file<<time<<"\n";
