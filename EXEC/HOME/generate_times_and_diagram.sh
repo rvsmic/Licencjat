@@ -25,7 +25,7 @@ elif [ $selected_version == "base" ]; then
         echo "Test $i"
         ./base $file time > /dev/null
     done
-    python3 ../PYTHON/plot_diagram.py $file $test_count
+    python3 ../../PYTHON/plot_diagram.py $file $test_count
     file_name=$(echo $file | cut -d '.' -f 1)
     echo
     echo "Generated diagram for $file for average of $test_count times in DOCS/histogram_$file_name.png"
@@ -45,7 +45,7 @@ elif [ $selected_version == "cuda" ]; then
         echo "Test $i"
         ./cuda $file time > /dev/null
     done
-    python3 ../PYTHON/plot_diagram.py $file $test_count
+    python3 ../../PYTHON/plot_diagram.py $file $test_count
     file_name=$(echo $file | cut -d '.' -f 1)
     echo
     echo "Generated diagram for $file for average of $test_count times in DOCS/histogram_$file_name.png"
@@ -65,7 +65,7 @@ elif [ $selected_version == "sycl_cpu" ]; then
         echo "Test $i"
         ./sycl_cpu $file time cpu > /dev/null
     done
-    python3 ../PYTHON/plot_diagram.py $file $test_count
+    python3 ../../PYTHON/plot_diagram.py $file $test_count
     file_name=$(echo $file | cut -d '.' -f 1)
     echo
     echo "Generated diagram for $file for average of $test_count times in DOCS/histogram_$file_name.png"
@@ -85,7 +85,7 @@ elif [ $selected_version == "sycl_gpu" ]; then
         echo "Test $i"
         ./sycl_gpu $file time gpu > /dev/null
     done
-    python3 ../PYTHON/plot_diagram.py $file
+    python3 ../../PYTHON/plot_diagram.py $file
     file_name=$(echo $file | cut -d '.' -f 1)
     echo
     echo "Generated diagram for $file for average of $test_count times in DOCS/histogram_$file_name.png"
@@ -165,7 +165,7 @@ for i in $(seq 1 $test_count); do
     ./sycl_gpu $file time gpu > /dev/null
 done
 
-python3 ../PYTHON/plot_diagram.py $file $test_count
+python3 ../../PYTHON/plot_diagram.py $file $test_count
 
 file_name=$(echo $file | cut -d '.' -f 1)
 

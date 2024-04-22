@@ -6,7 +6,7 @@ if [ $# -lt 2 ]; then
     exit 1
 fi
 
-python3 ../PYTHON/plot_diagram.py $file $test_count
+python3 ../../PYTHON/plot_diagram.py $file $test_count
 
 file_name=$(echo $file | cut -d '.' -f 1)
 
