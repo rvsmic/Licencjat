@@ -13,6 +13,7 @@ typedef unsigned int uint;
 typedef unsigned char uchar;
 
 class calculateShadeKernel;
+class calculatePortionedShadeKernel;
 
 // Calculate shade with SYCL
 float* calculateShade(float* &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
@@ -21,86 +22,185 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
     try {
         // Create a queue to work with
         sycl::queue deviceQueue;
+        size_t totalMemory = deviceQueue.get_device().get_info<sycl::info::device::global_mem_size>();
+        // Currently SYCL doesn't provide a way to get available memory, but 80% of total memory seems to be safe
+        size_t freeMemory = (totalMemory - deviceQueue.get_device().get_info<sycl::info::device::global_mem_cache_size>()) * 0.8;
+        size_t totalExpectedSize = (height*width + (height-2) * (width-2)) * sizeof(float);
 
-        // Create buffers for pixel and shade arrays
-        sycl::buffer pixelArrBuf(pixelArray, sycl::range<1>(height * width));
-        sycl::buffer shadeArrBuf(shadeArr, sycl::range<1>((height-2) * (width-2)));
+        if(totalExpectedSize > freeMemory) {
+            printf("Too much data at once for device memory (%.2f MB > %.2f MB) - splitting\n", totalExpectedSize/1024.0/1024.0, freeMemory/1024.0/1024.0);
+            // Constant width and varying height
+            size_t dataBlockHeight = ((freeMemory*0.9/sizeof(float)) + 2*width - 4) / (2 * width - 2);
+            size_t iterationCount = (totalExpectedSize) / (((dataBlockHeight*width)+((dataBlockHeight-2)*(width-2)))*sizeof(float));
+            
+            for(int i=0; i<iterationCount; i++) {
+                size_t start = i * dataBlockHeight;
+                size_t end = (i+1) * dataBlockHeight;
+                if(end > height) {
+                    end = height;
+                }
+                size_t dataHeight = end - start;
+                // Create buffers for pixel and shade arrays
+                sycl::buffer pixelArrBuf(pixelArray + start*width, sycl::range<1>(dataHeight * width));
+                sycl::buffer shadeArrBuf(shadeArr + start*(width-2), sycl::range<1>((dataHeight-2) * (width-2)));
 
-        // Submit the kernel to the queue
-        deviceQueue.submit([&](sycl::handler &cgh) {
-            // Get access to the buffers
-            auto pixelArrAcc = pixelArrBuf.get_access<sycl::access::mode::read>(cgh);
-            auto shadeArrAcc = shadeArrBuf.get_access<sycl::access::mode::write>(cgh);
+                // Submit the kernel to the queue
+                deviceQueue.submit([&](sycl::handler &cgh) {
+                    // Get access to the buffers
+                    auto pixelArrAcc = pixelArrBuf.get_access<sycl::access::mode::read>(cgh);
+                    auto shadeArrAcc = shadeArrBuf.get_access<sycl::access::mode::write>(cgh);
 
-            // Define the kernel
-            cgh.parallel_for<calculateShadeKernel>(sycl::range<2>(height, width), [=](sycl::id<2> index) {
-                int i = index[0];
-                int j = index[1];
+                    // Define the kernel
+                    cgh.parallel_for<calculatePortionedShadeKernel>(sycl::range<2>(dataHeight, width), [=](sycl::id<2> index) {
+                        int i = index[0];
+                        int j = index[1];
 
-                int pixelPitch = width;
-                int shadePitch = width - 2;
+                        int pixelPitch = width;
+                        int shadePitch = width - 2;
 
-                int zenithDegree = 90 - altitude;
-                float zenithRadian = float(zenithDegree) * (M_PI / 180);
-                int azimuthMath = (360 - azimuth + 90) % 360;
-                float azimuthRadian = float(azimuthMath) * (M_PI / 180);
+                        int zenithDegree = 90 - altitude;
+                        float zenithRadian = float(zenithDegree) * (M_PI / 180);
+                        int azimuthMath = (360 - azimuth + 90) % 360;
+                        float azimuthRadian = float(azimuthMath) * (M_PI / 180);
 
-                // Cell size for shading - "real" pixel size -> bigger = less accurate shading
-                int cellSize = 5;
-                // Z factor - height exaggeration -> bigger = more intense shading
+                        // Cell size for shading - "real" pixel size -> bigger = less accurate shading
+                        int cellSize = 5;
+                        // Z factor - height exaggeration -> bigger = more intense shading
+                        int zFactor = 1;
+
+                        if (i>0 && i<dataHeight-1 && j>0 && j<width-1) {
+                            // Change in height in x-axis
+                            float changeX = (
+                                (
+                                    pixelArrAcc[(i-1)*pixelPitch + j+1] + (2 * pixelArrAcc[i*pixelPitch + j+1]) + pixelArrAcc[(i+1)*pixelPitch + j+1]
+                                ) - (
+                                    pixelArrAcc[(i-1)*pixelPitch + j-1] + (2 * pixelArrAcc[i*pixelPitch + j-1]) + pixelArrAcc[(i+1)*pixelPitch + j-1]
+                                )
+                            ) / (8 * cellSize);
+                            // Change in height in y-axis
+                            float changeY = (
+                                (
+                                    pixelArrAcc[(i+1)*pixelPitch + j-1] + (2 * pixelArrAcc[(i+1)*pixelPitch + j]) + pixelArrAcc[(i+1)*pixelPitch + j+1]
+                                ) - (
+                                    pixelArrAcc[(i-1)*pixelPitch + j-1] + (2 * pixelArrAcc[(i-1)*pixelPitch + j]) + pixelArrAcc[(i-1)*pixelPitch + j+1]
+                                )
+                            ) / (8 * cellSize);
+                            // Final slope radian
+                            float slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
+                            // Slope aspect radian
+                            float aspectRadian;
+                            if (changeX != 0) {
+                                aspectRadian = atan2(changeY, -changeX);
+                                if (aspectRadian < 0) {
+                                    aspectRadian = 2 * M_PI + aspectRadian;
+                                }
+                            } else {
+                                if (changeY > 0) {
+                                    aspectRadian = M_PI / 2;
+                                } else if (changeY < 0) {
+                                    aspectRadian = 3 * M_PI / 2;
+                                } else {
+                                    aspectRadian = 0;
+                                }
+                            }
+                            // Shade value for pixel
+                            float hillShade = 255.0 * (
+                                (
+                                    sycl::native::cos(zenithRadian) * sycl::native::cos(slopeRadian)
+                                ) + (
+                                    sycl::native::sin(zenithRadian) * sycl::native::sin(slopeRadian) * sycl::native::cos(azimuthRadian - aspectRadian)
+                                )
+                            );
+                            if (hillShade < 0) {
+                                hillShade = 0;
+                            }
+                            shadeArrAcc[(i-1)*shadePitch + (j-1)] = hillShade;
+                        }
+                    });
+                });
+                deviceQueue.wait();
+            }
+        } else {
+            // Create buffers for pixel and shade arrays
+            sycl::buffer pixelArrBuf(pixelArray, sycl::range<1>(height * width));
+            sycl::buffer shadeArrBuf(shadeArr, sycl::range<1>((height-2) * (width-2)));
+
+            // Submit the kernel to the queue
+            deviceQueue.submit([&](sycl::handler &cgh) {
+                // Get access to the buffers
+                auto pixelArrAcc = pixelArrBuf.get_access<sycl::access::mode::read>(cgh);
+                auto shadeArrAcc = shadeArrBuf.get_access<sycl::access::mode::write>(cgh);
+
+                // Define the kernel
+                cgh.parallel_for<calculateShadeKernel>(sycl::range<2>(height, width), [=](sycl::id<2> index) {
+                    int i = index[0];
+                    int j = index[1];
+
+                    int pixelPitch = width;
+                    int shadePitch = width - 2;
+
+                    int zenithDegree = 90 - altitude;
+                    float zenithRadian = float(zenithDegree) * (M_PI / 180);
+                    int azimuthMath = (360 - azimuth + 90) % 360;
+                    float azimuthRadian = float(azimuthMath) * (M_PI / 180);
+
+                    // Cell size for shading - "real" pixel size -> bigger = less accurate shading
+                    int cellSize = 5;
+                    // Z factor - height exaggeration -> bigger = more intense shading
                 int zFactor = 1;
 
-                if (i>0 && i<height-1 && j>0 && j<width-1) {
-                    // Change in height in x-axis
-                    float changeX = (
-                        (
-                            pixelArrAcc[(i-1)*pixelPitch + j+1] + (2 * pixelArrAcc[i*pixelPitch + j+1]) + pixelArrAcc[(i+1)*pixelPitch + j+1]
-                        ) - (
-                            pixelArrAcc[(i-1)*pixelPitch + j-1] + (2 * pixelArrAcc[i*pixelPitch + j-1]) + pixelArrAcc[(i+1)*pixelPitch + j-1]
-                        )
-                    ) / (8 * cellSize);
-                    // Change in height in y-axis
-                    float changeY = (
-                        (
-                            pixelArrAcc[(i+1)*pixelPitch + j-1] + (2 * pixelArrAcc[(i+1)*pixelPitch + j]) + pixelArrAcc[(i+1)*pixelPitch + j+1]
-                        ) - (
-                            pixelArrAcc[(i-1)*pixelPitch + j-1] + (2 * pixelArrAcc[(i-1)*pixelPitch + j]) + pixelArrAcc[(i-1)*pixelPitch + j+1]
-                        )
-                    ) / (8 * cellSize);
-                    // Final slope radian
-                    float slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
-                    // Slope aspect radian
-                    float aspectRadian;
-                    if (changeX != 0) {
-                        aspectRadian = atan2(changeY, -changeX);
-                        if (aspectRadian < 0) {
-                            aspectRadian = 2 * M_PI + aspectRadian;
-                        }
-                    } else {
-                        if (changeY > 0) {
-                            aspectRadian = M_PI / 2;
-                        } else if (changeY < 0) {
-                            aspectRadian = 3 * M_PI / 2;
+                    if (i>0 && i<height-1 && j>0 && j<width-1) {
+                        // Change in height in x-axis
+                        float changeX = (
+                            (
+                                pixelArrAcc[(i-1)*pixelPitch + j+1] + (2 * pixelArrAcc[i*pixelPitch + j+1]) + pixelArrAcc[(i+1)*pixelPitch + j+1]
+                            ) - (
+                                pixelArrAcc[(i-1)*pixelPitch + j-1] + (2 * pixelArrAcc[i*pixelPitch + j-1]) + pixelArrAcc[(i+1)*pixelPitch + j-1]
+                            )
+                        ) / (8 * cellSize);
+                        // Change in height in y-axis
+                        float changeY = (
+                            (
+                                pixelArrAcc[(i+1)*pixelPitch + j-1] + (2 * pixelArrAcc[(i+1)*pixelPitch + j]) + pixelArrAcc[(i+1)*pixelPitch + j+1]
+                            ) - (
+                                pixelArrAcc[(i-1)*pixelPitch + j-1] + (2 * pixelArrAcc[(i-1)*pixelPitch + j]) + pixelArrAcc[(i-1)*pixelPitch + j+1]
+                            )
+                        ) / (8 * cellSize);
+                        // Final slope radian
+                        float slopeRadian = atan(zFactor * sqrt(pow(changeX, 2) + pow(changeY, 2)));
+                        // Slope aspect radian
+                        float aspectRadian;
+                        if (changeX != 0) {
+                            aspectRadian = atan2(changeY, -changeX);
+                            if (aspectRadian < 0) {
+                                aspectRadian = 2 * M_PI + aspectRadian;
+                            }
                         } else {
-                            aspectRadian = 0;
+                            if (changeY > 0) {
+                                aspectRadian = M_PI / 2;
+                            } else if (changeY < 0) {
+                                aspectRadian = 3 * M_PI / 2;
+                            } else {
+                                aspectRadian = 0;
+                            }
                         }
+                        // Shade value for pixel
+                        float hillShade = 255.0 * (
+                            (
+                                sycl::native::cos(zenithRadian) * sycl::native::cos(slopeRadian)
+                            ) + (
+                                sycl::native::sin(zenithRadian) * sycl::native::sin(slopeRadian) * sycl::native::cos(azimuthRadian - aspectRadian)
+                            )
+                        );
+                        if (hillShade < 0) {
+                            hillShade = 0;
+                        }
+                        shadeArrAcc[(i-1)*shadePitch + (j-1)] = hillShade;
                     }
-                    // Shade value for pixel
-                    float hillShade = 255.0 * (
-                        (
-                            sycl::native::cos(zenithRadian) * sycl::native::cos(slopeRadian)
-                        ) + (
-                            sycl::native::sin(zenithRadian) * sycl::native::sin(slopeRadian) * sycl::native::cos(azimuthRadian - aspectRadian)
-                        )
-                    );
-                    if (hillShade < 0) {
-                        hillShade = 0;
-                    }
-                    shadeArrAcc[(i-1)*shadePitch + (j-1)] = hillShade;
-                }
+                });
             });
-        });
-        deviceQueue.wait();
+            deviceQueue.wait();
+        }
     } catch (sycl::exception const& e) {
         std::cerr<<"Caught synchronous SYCL exception:\n"<<e.what()<<"\n";
         std::terminate();
@@ -291,6 +391,10 @@ int main(int argc, char** argv) {
     }
     uint height = 0, width = 0;
     if(timeMode) {
+        std::string calc_device = "unknown_device";
+        if(argc > 3) {
+            calc_device = std::string(argv[3]);
+        }
         float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
         if(height == 0 || width == 0) {
             return 1;
@@ -299,9 +403,17 @@ int main(int argc, char** argv) {
         float* shadeArr = calculateShade(pixelArr, height, width);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-        saveTimeToFile("sycl.time", std::to_string(duration.count()));
+        saveTimeToFile("sycl_" + calc_device + ".time", std::to_string(duration.count()));
         return 0;
     }
+
+    // Print device info
+    sycl::queue deviceQueue;
+    size_t totalMemory = deviceQueue.get_device().get_info<sycl::info::device::global_mem_size>();
+    int cpuCount = deviceQueue.get_device().get_info<sycl::info::device::max_compute_units>();
+    printf("Device: %s\n", deviceQueue.get_device().get_info<sycl::info::device::name>().c_str());
+    printf("Max compute units: %d\n", cpuCount);
+    printf("Total memory: %lu MB\n", totalMemory/1024/1024);
 
     printf("Loading image...\n");
     float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
