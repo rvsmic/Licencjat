@@ -16,7 +16,7 @@ filename = sys.argv[1]
 num_samples = int(sys.argv[2])
 
 # Pliki z wynikami czasowymi
-files = ['../DATA/OUT/base.time', '../DATA/OUT/cuda.time', '../DATA/OUT/sycl_cpu.time', '../DATA/OUT/sycl_gpu.time']
+files = ['../../DATA/OUT/base.time', '../../DATA/OUT/cuda.time', '../../DATA/OUT/sycl_cpu.time', '../../DATA/OUT/sycl_gpu.time']
 
 # Obliczanie średnich czasów
 avg_times = [calculate_avg_time(filename) for filename in files]
@@ -42,7 +42,7 @@ for i, time in enumerate(avg_times):
 
 # Zapisywanie wykresu do pliku
 filename = filename.split('.')[0]
-plt.savefig('../DOCS/histogram_' + filename + '.png')
+plt.savefig('../../DOCS/histogram_' + filename + '.png')
 
 # Wyświetlenie wykresu
 plt.show()

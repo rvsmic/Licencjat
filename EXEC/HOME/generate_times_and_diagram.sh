@@ -120,17 +120,17 @@ if [ $ERROR -eq 1 ]; then
 fi
 
 # remove old times
-if [ -e "../DATA/OUT/base.time" ]; then
-    rm ../DATA/OUT/base.time
+if [ -e "../../DATA/OUT/base.time" ]; then
+    rm ../../DATA/OUT/base.time
 fi
-if [ -e "../DATA/OUT/cuda.time" ]; then
-    rm ../DATA/OUT/cuda.time
+if [ -e "../../DATA/OUT/cuda.time" ]; then
+    rm ../../DATA/OUT/cuda.time
 fi
-if [ -e "../DATA/OUT/sycl_cpu.time" ]; then
-    rm ../DATA/OUT/sycl_cpu.time
+if [ -e "../../DATA/OUT/sycl_cpu.time" ]; then
+    rm ../../DATA/OUT/sycl_cpu.time
 fi
-if [ -e "../DATA/OUT/sycl_gpu.time" ]; then
-    rm ../DATA/OUT/sycl_gpu.time
+if [ -e "../../DATA/OUT/sycl_gpu.time" ]; then
+    rm ../../DATA/OUT/sycl_gpu.time
 fi
 
 # base
