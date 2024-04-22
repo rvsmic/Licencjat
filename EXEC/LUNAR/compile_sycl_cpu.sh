@@ -1,0 +1,1 @@
+icpx -std=c++17 -o "$(dirname "$0")/sycl_cpu" "$(dirname "$0")/../SYCL/main.cpp" -O3 -fsycl -fsycl-targets=spir64_x86_64 -lgdal

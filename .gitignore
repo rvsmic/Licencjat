@@ -2,8 +2,10 @@
 .vscode/*
 
 # ignore executed files but keep the scripts
-EXEC/*
-!EXEC/*.sh
+EXEC/HOME/*
+!EXEC/HOME/*.sh
+EXEC/LUNAR/*
+!EXEC/LUNAR/*.sh
 
 # ignore the local files
 Local/*
