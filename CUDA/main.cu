@@ -411,6 +411,16 @@ int main(int argc, char** argv) {
         }
     }
     uint height = 0, width = 0;
+
+    // Print device info
+    cudaDeviceProp deviceProp;
+    cudaGetDeviceProperties(&deviceProp, 0);
+    size_t totalMemory = deviceProp.totalGlobalMem;
+    int cpuCount = deviceProp.multiProcessorCount;
+    printf("Device: %s\n", deviceProp.name);
+    printf("Max compute units: %d\n", cpuCount);
+    printf("Total memory: %lu MB\n", totalMemory/1024/1024);
+
     if(timeMode) {
         float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
         if(height == 0 || width == 0) {

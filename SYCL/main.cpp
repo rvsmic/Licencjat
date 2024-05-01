@@ -390,6 +390,15 @@ int main(int argc, char** argv) {
         }
     }
     uint height = 0, width = 0;
+
+    // Print device info
+    sycl::queue deviceQueue;
+    size_t totalMemory = deviceQueue.get_device().get_info<sycl::info::device::global_mem_size>();
+    int cpuCount = deviceQueue.get_device().get_info<sycl::info::device::max_compute_units>();
+    printf("Device: %s\n", deviceQueue.get_device().get_info<sycl::info::device::name>().c_str());
+    printf("Max compute units: %d\n", cpuCount);
+    printf("Total memory: %lu MB\n", totalMemory/1024/1024);
+
     if(timeMode) {
         std::string calc_device = "unknown_device";
         if(argc > 3) {
@@ -406,14 +415,6 @@ int main(int argc, char** argv) {
         saveTimeToFile("sycl_" + calc_device + ".time", std::to_string(duration.count()));
         return 0;
     }
-
-    // Print device info
-    sycl::queue deviceQueue;
-    size_t totalMemory = deviceQueue.get_device().get_info<sycl::info::device::global_mem_size>();
-    int cpuCount = deviceQueue.get_device().get_info<sycl::info::device::max_compute_units>();
-    printf("Device: %s\n", deviceQueue.get_device().get_info<sycl::info::device::name>().c_str());
-    printf("Max compute units: %d\n", cpuCount);
-    printf("Total memory: %lu MB\n", totalMemory/1024/1024);
 
     printf("Loading image...\n");
     float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
