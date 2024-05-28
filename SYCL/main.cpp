@@ -379,7 +379,7 @@ void saveTimeToFile(const std::string& fileName, const std::string& time) {
 }
 
 int main(int argc, char** argv) {
-    std::string tiffFileName = "fiji.tif";
+    std::string tiffFileName = "fuji.tif";
     bool timeMode = false;
     if(argc > 1) {
         tiffFileName = argv[1];

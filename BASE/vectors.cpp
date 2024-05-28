@@ -213,7 +213,7 @@ void saveToJPEG(const std::string& fileName, std::vector<std::vector<float>>& pi
 int main() {
     uint height = 0, width = 0;
     std::cout<<"Loading image...\n";
-    std::vector <std::vector<float>> pixelArr = loadGeoTIFF("fiji.tif", height, width);
+    std::vector <std::vector<float>> pixelArr = loadGeoTIFF("fuji.tif", height, width);
     std::cout<<"Image dimensions: "<<pixelArr.size()<<" "<<pixelArr[0].size()<<"\n";
     std::cout<<"Saving preview...\n";
     saveToJPEG("pre_shade.jpeg", pixelArr, height, width);

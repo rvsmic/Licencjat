@@ -400,7 +400,7 @@ void saveTimeToFile(const std::string& fileName, const std::string& time) {
 }
 
 int main(int argc, char** argv) {
-    std::string tiffFileName = "fiji.tif";
+    std::string tiffFileName = "fuji.tif";
     bool timeMode = false;
     if(argc > 1) {
         tiffFileName = argv[1];
@@ -414,6 +414,7 @@ int main(int argc, char** argv) {
 
     // Print device info
     cudaDeviceProp deviceProp;
+    cudaSetDevice(0);
     cudaGetDeviceProperties(&deviceProp, 0);
     size_t totalMemory = deviceProp.totalGlobalMem;
     int cpuCount = deviceProp.multiProcessorCount;
