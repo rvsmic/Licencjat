@@ -16,7 +16,7 @@ class calculateShadeKernel;
 class calculatePortionedShadeKernel;
 
 // Calculate shade with SYCL
-float* calculateShade(float* &pixelArray, const uint height, const uint width, int azimuth=315, int altitude=45) {
+float* calculateShade(float* &pixelArray, const uint height, const uint width, float cellSize, int azimuth=315, int altitude=45) {
     float* shadeArr = new float[(height - 2) * (width - 2)]();
     
     try {
@@ -63,8 +63,6 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
                         int azimuthMath = (360 - azimuth + 90) % 360;
                         float azimuthRadian = float(azimuthMath) * (M_PI / 180);
 
-                        // Cell size for shading - "real" pixel size -> bigger = less accurate shading
-                        int cellSize = 5;
                         // Z factor - height exaggeration -> bigger = more intense shading
                         int zFactor = 1;
 
@@ -144,10 +142,8 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
                     int azimuthMath = (360 - azimuth + 90) % 360;
                     float azimuthRadian = float(azimuthMath) * (M_PI / 180);
 
-                    // Cell size for shading - "real" pixel size -> bigger = less accurate shading
-                    int cellSize = 5;
                     // Z factor - height exaggeration -> bigger = more intense shading
-                int zFactor = 1;
+                    int zFactor = 1;
 
                     if (i>0 && i<height-1 && j>0 && j<width-1) {
                         // Change in height in x-axis
@@ -210,7 +206,7 @@ float* calculateShade(float* &pixelArray, const uint height, const uint width, i
 }
 
 // Load GeoTIFF file
-float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
+float* loadGeoTIFF(const std::string &filename, uint &height, uint &width, float &cellSize) {
     GDALAllRegister();
     // Path for input data folder
     std::string path = "../../DATA/IN/" + filename;
@@ -227,6 +223,11 @@ float* loadGeoTIFF(const std::string &filename, uint &height, uint &width) {
 
         height = nYSize;
         width = nXSize;
+
+        // Get cellSize
+        double adfGeoTransform[6];
+        dataset->GetGeoTransform(adfGeoTransform);
+        cellSize = adfGeoTransform[1];
 
         // Allocate memory for the elevation data
         elevationData = new float[height * width]();
@@ -390,6 +391,7 @@ int main(int argc, char** argv) {
         }
     }
     uint height = 0, width = 0;
+    float cellSize;
 
     // Print device info
     sycl::queue deviceQueue;
@@ -404,12 +406,12 @@ int main(int argc, char** argv) {
         if(argc > 3) {
             calc_device = std::string(argv[3]);
         }
-        float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
+        float* pixelArr = loadGeoTIFF(tiffFileName, height, width, cellSize);
         if(height == 0 || width == 0) {
             return 1;
         }
         auto start = std::chrono::high_resolution_clock::now();
-        float* shadeArr = calculateShade(pixelArr, height, width);
+        float* shadeArr = calculateShade(pixelArr, height, width, cellSize);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
         saveTimeToFile("sycl_" + calc_device + ".time", std::to_string(duration.count()));
@@ -417,20 +419,21 @@ int main(int argc, char** argv) {
     }
 
     printf("Loading image...\n");
-    float* pixelArr = loadGeoTIFF(tiffFileName, height, width);
+    float* pixelArr = loadGeoTIFF(tiffFileName, height, width, cellSize);
     if(height == 0 || width == 0) {
         printf("Failed to load image\n");
         return 1;
     }
     printf("Loaded image: %s\n", tiffFileName.c_str());
     printf("Image dimensions:\n    y: %d\n    x: %d\n", height, width);
+    printf("Cell size: %f\n", cellSize);
     
     printf("Saving preview...\n");
     saveToJPEG("pre_shade.jpeg", pixelArr, height, width);
 
     printf("Calculating shade...\n");
     auto start = std::chrono::high_resolution_clock::now();
-    float* shadeArr = calculateShade(pixelArr, height, width);
+    float* shadeArr = calculateShade(pixelArr, height, width, cellSize);
     auto end = std::chrono::high_resolution_clock::now();
 
     printf("Applying shade...\n");
